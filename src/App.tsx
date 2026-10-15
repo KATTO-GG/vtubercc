@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import { VRMLoaderPlugin, VRM } from '@pixiv/three-vrm';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { startFaceTracking, stopFaceTracking } from './tracking';
+import { initRetarget, retargetFrame } from './retarget';
 
 interface ModelInfo {
   name: string;
@@ -20,6 +22,8 @@ export default function App() {
   const [status, setStatus] = useState<'disconnected' | 'loading' | 'connected'>('disconnected');
   const [cameraIndex, setCameraIndex] = useState(0);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
+  const [isTracking, setIsTracking] = useState(false);
+  const [trackingError, setTrackingError] = useState<string | null>(null);
 
   // Three.js refs
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -171,6 +175,48 @@ export default function App() {
       });
     };
   }, [vrm]);
+
+  // Initialize face tracking
+  const initTracking = useCallback(async () => {
+    if (!vrm) return;
+
+    try {
+      setTrackingError(null);
+      initRetarget({ vrm, smoothing: 0.3, blendshapeMultiplier: 1.0 });
+
+      await startFaceTracking({
+        cameraIndex,
+        faceConfidence: 0.7,
+        onResult: (result) => {
+          // Retarget MediaPipe results to VRM
+          retargetFrame(result);
+        },
+        onError: (error) => {
+          setTrackingError(error);
+          setIsTracking(false);
+        },
+      });
+
+      setIsTracking(true);
+    } catch (err) {
+      setTrackingError(err instanceof Error ? err.message : 'Failed to start tracking');
+      setIsTracking(false);
+    }
+  }, [vrm, cameraIndex]);
+
+  // Start/stop tracking when camera index or VRM changes
+  useEffect(() => {
+    if (vrm && cameraIndex >= 0) {
+      initTracking();
+    } else {
+      stopFaceTracking();
+      setIsTracking(false);
+    }
+
+    return () => {
+      stopFaceTracking();
+    };
+  }, [vrm, cameraIndex, initTracking]);
 
   // Load VRM from file
   const loadVRM = useCallback(async (file: File) => {
@@ -381,6 +427,20 @@ export default function App() {
                 <span>0.5</span>
               </div>
               <input type="range" className="slider" min="0.1" max="1" step="0.05" defaultValue="0.5" />
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <button
+                className={`btn ${isTracking ? 'btn-secondary' : 'btn-primary'}`}
+                onClick={() => vrm ? (isTracking ? stopFaceTracking() : initTracking()) : null}
+                disabled={!vrm}
+              >
+                {isTracking ? 'Stop Tracking' : 'Start Tracking'}
+              </button>
+              {trackingError && (
+                <div style={{ color: 'var(--error)', marginTop: 8, fontSize: 12 }}>
+                  {trackingError}
+                </div>
+              )}
             </div>
           </div>
 
