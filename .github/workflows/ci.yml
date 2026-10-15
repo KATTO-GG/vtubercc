@@ -63,6 +63,8 @@ jobs:
     name: Build Tauri
     runs-on: windows-latest
     needs: build-frontend
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
